@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tetris — Neon Arcade</title>
+<link rel="stylesheet" href="css/style.css" />
+<style>
+#bg {
+position: absolute;
+inset: 0;
+z-index: 0;
+pointer-events: none;
+}
+.tetris-stage {
+ position: relative;
+ display: flex;
+ align-items: flex-start;
+ gap: 16px;
+}
+
+
+#bg {
+ position: absolute;
+ top: 0;
+ left: 0;
+ width: 100%;
+ height: 100%;
+ z-index: 0;
+ border-radius: 24px;
+ pointer-events: none;
+ filter: blur(0.5px);
+}
+
+
+.canvas-wrap {
+ position: relative;
+ z-index: 2;
+}
+
+
+#c {
+ background: transparent !important;
+}
+
+
+.tetris-stage .canvas-wrap { position: relative; z-index: 1; }
+#fx {
+position: absolute; top: 8px; left: 8px;
+pointer-events: none; z-index: 2;
+}
+.side {
+display: flex; flex-direction: column; gap: 12px;
+z-index: 1; position: relative;
+padding-top: 8px;
+}
+.side h4 {
+margin: 0 0 4px; color: var(--muted);
+font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+}
+.preview {
+background: #05050f;
+border: 1px solid var(--border);
+border-radius: 10px;
+padding: 8px;
+}
+#combo {
+position: absolute;
+top: 40%; left: 50%; transform: translate(-50%, -50%) scale(0.6);
+font-family: 'Courier New', monospace;
+font-weight: 900; letter-spacing: 3px;
+font-size: 44px;
+color: #ffdd4d;
+text-shadow: 0 0 20px #ff4d9d, 0 0 40px #ff4d9d;
+opacity: 0;
+transition: opacity 0.15s ease, transform 0.25s cubic-bezier(.3,1.7,.5,1);
+pointer-events: none;
+z-index: 3;
+}
+#combo.show { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+@keyframes shake {
+0%,100% { transform: translate(0,0); }
+20% { transform: translate(-4px, 2px); }
+40% { transform: translate(4px, -3px); }
+60% { transform: translate(-3px, -2px); }
+80% { transform: translate(3px, 2px); }
+}
+.shake { animation: shake 0.28s ease; }
+</style>
+</head>
+<body class="game-page">
+<div class="game-header" style="max-width:460px">
+<a class="back-link" href="../index.html">← arcade</a>
+<h1>TETRIS</h1>
+<span></span>
+</div>
+<div class="hud">
+<span>Score<b id="score">0</b></span>
+<span>Lines<b id="lines">0</b></span>
+<span>Level<b id="level">1</b></span>
+<span>High<b id="high">0</b></span>
+</div>
+<div class="card" style="max-width:460px;margin-bottom:16px">
+  <h4 style="margin:0 0 10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;font-size:11px">Leaderboard</h4>
+  <div id="tetris-leaderboard" style="display:grid;gap:6px"></div>
+</div>
+<div class="tetris-stage" id="stage">
+<canvas id="bg" width="300" height="600"></canvas>
+<div class="canvas-wrap" id="wrap">
+<canvas id="c" width="260" height="520"></canvas>
+<canvas id="fx" width="244" height="504"></canvas>
+<div id="combo"></div>
+<div id="over" class="overlay hidden" style="display:none">
+<h2>GAME OVER</h2>
+<p>Press space to try again.</p>
+<button class="btn" id="restart">PLAY AGAIN</button>
+</div>
+</div>
+<div class="side">
+<div>
+<h4>Next</h4>
+<div class="preview"><canvas id="nextC" width="96" height="96"></canvas></div>
+</div>
+<div>
+<h4>Hold</h4>
+<div class="preview"><canvas id="holdC" width="96" height="96"></canvas></div>
+</div>
+</div>
+</div>
+<div class="touch-controls" style="position:fixed;right:18px;bottom:18px;display:flex;gap:8px;z-index:40">
+  <button id="btn-left" class="btn">◀</button>
+  <button id="btn-rotate" class="btn">⤴</button>
+  <button id="btn-right" class="btn">▶</button>
+  <button id="btn-drop" class="btn">↓</button>
+</div>
+<p class="controls"><kbd>←</kbd>/<kbd>→</kbd> move · <kbd>↓</kbd> soft drop · <kbd>↑</kbd>/<kbd>X</kbd> rotate · <kbd>Space</kbd> hard drop · <kbd>C</kbd> hold · <kbd>P</kbd> pause</p>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+<script src="js/supabase-config.js"></script>
+<script src="js/supabase-client.js"></script>
+<script type="module">
+import { $, loadHigh, saveHigh } from 'js/common.js';
+const canvas = $('#c'), ctx = canvas.getContext('2d');
+const fx = $('#fx'), fxCtx = fx.getContext('2d');
+const bg = $('#bg'), bgCtx = bg.getContext('2d');
+const nextC = $('#nextC'), nextCtx = nextC.getContext('2d');
+const holdC = $('#holdC'), holdCtx = holdC.getContext('2d');
+const wrap = $('#wrap');
+const combo = $('#combo');
+const COLS = 10, ROWS = 20, CELL = 26;
+const HIGH_KEY = 'arcade.tetris.high';
+const SHAPES = {
+I: { color:'#4dd0ff', blocks:[[0,1],[1,1],[2,1],[3,1]], size:4 },
+O: { color:'#ffdd4d', blocks:[[1,0],[2,0],[1,1],[2,1]], size:4 },
+T: { color:'#b14dff', blocks:[[1,0],[0,1],[1,1],[2,1]], size:3 },
+S: { color:'#4dff9b', blocks:[[1,0],[2,0],[0,1],[1,1]], size:3 },
+Z: { color:'#ff4d9d', blocks:[[0,0],[1,0],[1,1],[2,1]], size:3 },
+J: { color:'#4d7dff', blocks:[[0,0],[0,1],[1,1],[2,1]], size:3 },
+L: { color:'#ff884d', blocks:[[2,0],[0,1],[1,1],[2,1]], size:3 },
+};
+const BAG_KEYS = Object.keys(SHAPES);
+let bag = [];
+function nextFromBag() {
+if (!bag.length) {
+bag = BAG_KEYS.slice();
+for (let i = bag.length-1; i>0; i--) { const j = Math.floor(Math.random()*(i+1)); [bag[i],bag[j]]=[bag[j],bag[i]]; }
+}
+return bag.pop();
+}
+function makePiece(key) {
+const s = SHAPES[key];
+return { key, color: s.color, size: s.size, blocks: s.blocks.map(b=>b.slice()), x: 3, y: 0 };
+}
+let grid, piece, next, hold, canHold, score, lines, level, dropMs, last, dead, paused;
+let clearing = null; // { rows: [...], t: 0, duration: 500 }
+let particles = [];
+let bgTime = 0;
+let comboCount = 0;
+function newGame() {
+grid = Array.from({length:ROWS}, () => Array(COLS).fill(null));
+bag = [];
+piece = makePiece(nextFromBag());
+next = makePiece(nextFromBag());
+hold = null; canHold = true;
+score = 0; lines = 0; level = 1; dropMs = 600;
+dead = false; paused = false;
+comboCount = 0;
+clearing = null; particles = [];
+$('#score').textContent = 0; $('#lines').textContent = 0; $('#level').textContent = 1;
+$('#high').textContent = loadHigh(HIGH_KEY);
+$('#over').classList.add('hidden');
+last = performance.now();
+}
+function collide(p, dx, dy, blocks=p.blocks) {
+for (const [bx, by] of blocks) {
+const x = p.x + bx + dx, y = p.y + by + dy;
+if (x < 0 || x >= COLS || y >= ROWS) return true;
+if (y >= 0 && grid[y][x]) return true;
+}
+return false;
+}
+function rotate(p) {
+if (p.key === 'O') return p.blocks;
+const n = p.size - 1;
+return p.blocks.map(([x,y]) => [n - y, x]);
+}
+function lock() {
+for (const [bx, by] of piece.blocks) {
+const x = piece.x + bx, y = piece.y + by;
+if (y < 0) { dead = true; return; }
+grid[y][x] = piece.color;
+}
+// detect full rows
+const full = [];
+for (let r = 0; r < ROWS; r++) if (grid[r].every(c => c)) full.push(r);
+if (full.length) {
+clearing = { rows: full, t: 0, duration: 450 };
+// spawn particles
+for (const r of full) {
+for (let x = 0; x < COLS; x++) {
+const color = grid[r][x];
+for (let k = 0; k < 3; k++) {
+particles.push({
+x: x * CELL + CELL/2 + 8,
+y: r * CELL + CELL/2 + 8,
+vx: (Math.random()-0.5) * 320,
+vy: (Math.random()-0.5) * 320 - 100,
+life: 0.6 + Math.random()*0.4,
+age: 0,
+color,
+size: 3 + Math.random()*4,
+g: 600,
+});
+}
+}
+}
+// screen shake
+wrap.classList.remove('shake'); void wrap.offsetWidth; wrap.classList.add('shake');
+// combo popup
+comboCount++;
+const msgs = [null, 'CLEAR!', 'DOUBLE!', 'TRIPLE!', 'TETRIS!'];
+combo.textContent = msgs[full.length] || `+${full.length}`;
+combo.classList.remove('show'); void combo.offsetWidth; combo.classList.add('show');
+setTimeout(() => combo.classList.remove('show'), 700);
+} else {
+comboCount = 0;
+spawnNext();
+}
+}
+function finishClear() {
+if (!clearing) return;
+const rows = clearing.rows.slice().sort((a,b)=>a-b);
+// remove rows top-down then unshift
+for (let i = rows.length - 1; i >= 0; i--) {
+grid.splice(rows[i], 1);
+grid.unshift(Array(COLS).fill(null));
+}
+const cleared = rows.length;
+lines += cleared;
+score += [0, 100, 300, 500, 800][cleared] * level + (comboCount > 1 ? comboCount * 50 : 0);
+const newLevel = 1 + Math.floor(lines / 10);
+if (newLevel > level) {
+level = newLevel;
+dropMs = Math.max(80, 600 - (level-1) * 50);
+flash(`LEVEL ${level}`);
+}
+$('#score').textContent = score;
+$('#lines').textContent = lines;
+$('#level').textContent = level;
+clearing = null;
+spawnNext();
+}
+function flash(text) {
+combo.textContent = text;
+combo.classList.remove('show'); void combo.offsetWidth; combo.classList.add('show');
+setTimeout(() => combo.classList.remove('show'), 700);
+}
+function spawnNext() {
+piece = next;
+next = makePiece(nextFromBag());
+canHold = true;
+if (collide(piece, 0, 0)) dead = true;
+}
+function step(now, dt) {
+if (dead) {
+  const h = loadHigh(HIGH_KEY);
+  if (score > h) { saveHigh(HIGH_KEY, score); $('#high').textContent = score; }
+  $('#over').style.display = 'flex';
+  if (!window._tetrisScoreSubmitted) { window._tetrisScoreSubmitted = true; submitScore(score); }
+  return;
+}
+if (paused) { last = now; return; }
+if (clearing) {
+clearing.t += dt * 1000;
+if (clearing.t >= clearing.duration) finishClear();
+return;
+}
+if (now - last >= dropMs) {
+if (!collide(piece, 0, 1)) piece.y++;
+else lock();
+last = now;
+}
+}
+function drawCell(ctx, x, y, color, alpha = 1) {
+ctx.save();
+ctx.globalAlpha = alpha;
+const px = x*CELL+1, py = y*CELL+1, sz = CELL-2;
+const grad = ctx.createLinearGradient(px, py, px, py + sz);
+grad.addColorStop(0, color);
+grad.addColorStop(1, darken(color, 0.45));
+ctx.fillStyle = grad;
+ctx.fillRect(px, py, sz, sz);
+ctx.fillStyle = 'rgba(255,255,255,0.22)';
+ctx.fillRect(px, py, sz, 3);
+ctx.fillStyle = 'rgba(0,0,0,0.25)';
+ctx.fillRect(px, py + sz - 2, sz, 2);
+ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+ctx.strokeRect(px + 0.5, py + 0.5, sz-1, sz-1);
+ctx.restore();
+}
+function darken(hex, amt) {
+const n = parseInt(hex.slice(1), 16);
+const r = Math.round(((n>>16)&255) * (1-amt));
+const g = Math.round(((n>>8)&255) * (1-amt));
+const b = Math.round((n&255) * (1-amt));
+return `rgb(${r},${g},${b})`;
+}
+function drawBoard() {
+ctx.clearRect(0, 0, canvas.width, canvas.height);
+// subtle background glow
+const grd = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 40, canvas.width/2, canvas.height/2, 360);
+grd.addColorStop(0, 'rgba(255,77,157,0.06)');
+grd.addColorStop(1, 'rgba(0,0,0,0)');
+ctx.fillStyle = grd; ctx.fillRect(0, 0, canvas.width, canvas.height);
+// grid lines
+ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+for (let x=0; x<=COLS; x++) { ctx.beginPath(); ctx.moveTo(x*CELL,0); ctx.lineTo(x*CELL,ROWS*CELL); ctx.stroke(); }
+for (let y=0; y<=ROWS; y++) { ctx.beginPath(); ctx.moveTo(0,y*CELL); ctx.lineTo(COLS*CELL,y*CELL); ctx.stroke(); }
+// settled cells, with flashing effect for clearing rows
+const flashing = clearing ? new Set(clearing.rows) : null;
+const phase = clearing ? clearing.t / clearing.duration : 0;
+for (let y = 0; y < ROWS; y++) {
+for (let x = 0; x < COLS; x++) {
+const c = grid[y][x];
+if (!c) continue;
+if (flashing && flashing.has(y)) {
+const t = phase;
+// flash white then fade out, shrinking toward center
+const alpha = 1 - t;
+const shrink = 1 - t;
+const centerX = x*CELL + CELL/2;
+const centerY = y*CELL + CELL/2;
+const sz = (CELL-2) * shrink;
+ctx.save();
+ctx.globalAlpha = alpha;
+ctx.fillStyle = t < 0.3 ? '#ffffff' : c;
+ctx.shadowColor = c; ctx.shadowBlur = 20 * (1 - t);
+ctx.fillRect(centerX - sz/2, centerY - sz/2, sz, sz);
+ctx.restore();
+} else {
+drawCell(ctx, x, y, c);
+}
+}
+}
+if (!clearing) {
+// ghost piece
+let gy = 0;
+while (!collide(piece, 0, gy+1)) gy++;
+for (const [bx, by] of piece.blocks) drawCell(ctx, piece.x + bx, piece.y + by + gy, piece.color, 0.2);
+// active piece
+for (const [bx, by] of piece.blocks) drawCell(ctx, piece.x + bx, piece.y + by, piece.color);
+}
+}
+function drawPreview(c, ctx2, piece) {
+ctx2.clearRect(0, 0, c.width, c.height);
+ctx2.fillStyle = '#05050f';
+ctx2.fillRect(0, 0, c.width, c.height);
+if (!piece) return;
+const sz = 20;
+let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+for (const [x, y] of piece.blocks) {
+if (x < minX) minX = x; if (y < minY) minY = y;
+if (x > maxX) maxX = x; if (y > maxY) maxY = y;
+}
+const w = (maxX - minX + 1) * sz;
+const h = (maxY - minY + 1) * sz;
+const ox = (c.width - w) / 2 - minX * sz;
+const oy = (c.height - h) / 2 - minY * sz;
+for (const [x, y] of piece.blocks) {
+const px = ox + x*sz, py = oy + y*sz;
+const g = ctx2.createLinearGradient(px, py, px, py + sz);
+g.addColorStop(0, piece.color); g.addColorStop(1, darken(piece.color, 0.4));
+ctx2.fillStyle = g;
+ctx2.fillRect(px + 1, py + 1, sz - 2, sz - 2);
+ctx2.fillStyle = 'rgba(255,255,255,0.22)';
+ctx2.fillRect(px + 1, py + 1, sz - 2, 3);
+}
+}
+// --- Particles ---
+function drawParticles(dt) {
+fxCtx.clearRect(0, 0, fx.width, fx.height);
+for (let i = particles.length - 1; i >= 0; i--) {
+const p = particles[i];
+p.age += dt;
+if (p.age >= p.life) { particles.splice(i, 1); continue; }
+p.vy += p.g * dt;
+p.x += p.vx * dt;
+p.y += p.vy * dt;
+const alpha = 1 - p.age / p.life;
+fxCtx.globalAlpha = alpha;
+fxCtx.fillStyle = p.color;
+fxCtx.shadowColor = p.color; fxCtx.shadowBlur = 10;
+fxCtx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
+}
+fxCtx.globalAlpha = 1;
+fxCtx.shadowBlur = 0;
+}
+// --- Animated background ---
+const stars = Array.from({length: 80}, () => ({ x: Math.random(), y: Math.random(), s: 1 + Math.random()*2, tw: Math.random()*Math.PI*2 }));
+function sizeBg() {
+const r = document.getElementById('wrap').getBoundingClientRect();
+
+
+bg.width = Math.ceil(r.width);
+bg.height = Math.ceil(r.height);
+
+
+bg.style.width = r.width + 'px';
+bg.style.height = r.height + 'px';
+}
+window.addEventListener('resize', sizeBg);
+function drawBg(dt) {
+bgTime += dt;
+const W = bg.width, H = bg.height;
+
+
+// ===== MAIN NEON SPACE GRADIENT =====
+const g = bgCtx.createLinearGradient(0, 0, W, H);
+
+
+g.addColorStop(0, '#1a0033');
+g.addColorStop(0.4, '#12004a');
+g.addColorStop(1, '#001a2e');
+
+
+bgCtx.fillStyle = g;
+bgCtx.fillRect(0, 0, W, H);
+
+
+// ===== GLOW FOG (HALL AMBIENCE) =====
+for (let i = 0; i < 8; i++) {
+const x = W * (0.15 + i * 0.1);
+const y = H * (0.3 + Math.sin(bgTime * 0.4 + i) * 0.1);
+
+
+const fog = bgCtx.createRadialGradient(x, y, 0, x, y, 220);
+fog.addColorStop(0, 'rgba(255, 77, 157, 0.18)');
+fog.addColorStop(0.4, 'rgba(77, 208, 255, 0.12)');
+fog.addColorStop(1, 'rgba(0,0,0,0)');
+
+
+bgCtx.fillStyle = fog;
+bgCtx.fillRect(x - 250, y - 250, 500, 500);
+}
+
+
+// ===== PERSPECTIVE FLOOR GRID =====
+const horizon = H * 0.55;
+const spacing = 40;
+const scroll = (bgTime * 70) % spacing;
+
+
+bgCtx.strokeStyle = 'rgba(77, 208, 255, 0.25)';
+bgCtx.lineWidth = 1;
+
+
+for (let y = 0; y < 25; y++) {
+const py = horizon + y * spacing - scroll;
+if (py < horizon) continue;
+
+
+const alpha = 1 - (py - horizon) / H;
+bgCtx.globalAlpha = alpha * 0.9;
+
+
+bgCtx.beginPath();
+bgCtx.moveTo(0, py);
+bgCtx.lineTo(W, py);
+bgCtx.stroke();
+}
+
+
+bgCtx.globalAlpha = 1;
+
+
+// ===== PERSPECTIVE LINES =====
+for (let i = -14; i <= 14; i++) {
+const x = W / 2 + i * 50;
+
+
+bgCtx.strokeStyle = 'rgba(255, 77, 157, 0.12)';
+bgCtx.beginPath();
+bgCtx.moveTo(W / 2, horizon);
+bgCtx.lineTo(x, H);
+bgCtx.stroke();
+}
+
+
+// ===== NEON PILLARS (HALL SIGNATURE LOOK) =====
+for (let i = -4; i <= 4; i++) {
+const x = W / 2 + i * 110;
+const pulse = Math.sin(bgTime * 1.5 + i) * 0.5 + 0.5;
+
+
+const pillar = bgCtx.createLinearGradient(x, 0, x, H);
+pillar.addColorStop(0, 'rgba(255,255,255,0)');
+pillar.addColorStop(0.5, `rgba(77,208,255,${0.15 * pulse})`);
+pillar.addColorStop(1, 'rgba(255,77,157,0.08)');
+
+
+bgCtx.fillStyle = pillar;
+bgCtx.fillRect(x - 35, 0, 70, H);
+}
+
+
+// ===== STARS (BRIGHTER + TWINKLE) =====
+bgCtx.fillStyle = '#ffffff';
+
+
+for (const s of stars) {
+const tw = 0.4 + Math.sin(bgTime * 2 + s.tw) * 0.6;
+bgCtx.globalAlpha = tw;
+
+
+bgCtx.fillRect(
+s.x * W,
+s.y * H,
+s.s,
+s.s
+);
+}
+
+
+bgCtx.globalAlpha = 1;
+}
+// Submit score to Supabase or localStorage
+async function submitScore(score){
+  try{
+    if (window.SUPABASE_ENABLED && window.SUPABASE_CLIENT) {
+      const user = (await window.SUPABASE_CLIENT.auth.getUser()).data.user;
+      let username = 'guest'; let user_id = null;
+      if (user) { user_id = user.id; username = user.email; const { data: profile } = await window.SUPABASE_CLIENT.from('user_profiles').select('username').eq('id', user.id).maybeSingle(); if (profile) username = profile.username || username; }
+      await window.SUPABASE_CLIENT.from('tetris_scores').insert([{ user_id, username, score }]);
+      console.log('score submitted');
+    } else {
+      const s = JSON.parse(localStorage.getItem('tetris.scores')||'[]'); s.push({ username: (JSON.parse(localStorage.getItem('ng.session')||'null')||{email:'guest'}).email, score, t: Date.now() }); localStorage.setItem('tetris.scores', JSON.stringify(s));
+    }
+  }catch(e){console.warn('submit score failed', e)}
+}
+
+async function loadLeaderboard(){
+  const list = document.getElementById('tetris-leaderboard');
+  if (!list) return;
+  list.innerHTML = '<div class="small">Loading top scores...</div>';
+  if (window.SUPABASE_ENABLED && window.SUPABASE_CLIENT) {
+    try {
+      const { data } = await window.SUPABASE_CLIENT.from('tetris_scores').select('username,score').order('score', { ascending: false }).limit(5);
+      if (!data || !data.length) { list.innerHTML = '<div class="small">No scores yet.</div>'; return; }
+      list.innerHTML = data.map((row,i) => `<div style="display:flex;justify-content:space-between;font-size:14px;"><span>#${i+1} ${row.username}</span><strong>${row.score}</strong></div>`).join('');
+      return;
+    } catch(e) { console.warn(e); }
+  }
+  const s = JSON.parse(localStorage.getItem('tetris.scores')||'[]');
+  if (!s.length) { list.innerHTML = '<div class="small">No local scores yet.</div>'; return; }
+  s.sort((a,b)=>b.score-a.score);
+  list.innerHTML = s.slice(0,5).map((row,i) => `<div style="display:flex;justify-content:space-between;font-size:14px;"><span>#${i+1} ${row.username}</span><strong>${row.score}</strong></div>`).join('');
+}
+
+let prev = performance.now();
+function loop(now) {
+const dt = Math.min(0.05, (now - prev) / 1000);
+prev = now;
+step(now, dt);
+drawBg(dt);
+drawBoard();
+drawParticles(dt);
+drawPreview(nextC, nextCtx, next);
+drawPreview(holdC, holdCtx, hold);
+requestAnimationFrame(loop);
+}
+
+
+window.addEventListener('keydown', e => {
+if (dead && (e.key === ' ' || e.key.toLowerCase() === 'r')) {
+newGame(); requestAnimationFrame(loop); return;
+}
+if (clearing) return;
+if (paused && e.key.toLowerCase() !== 'p') return;
+switch (e.key) {
+case 'ArrowLeft': if (!collide(piece,-1,0)) piece.x--; break;
+case 'ArrowRight': if (!collide(piece, 1,0)) piece.x++; break;
+case 'ArrowDown': if (!collide(piece, 0,1)) { piece.y++; score += 1; $('#score').textContent = score; } break;
+case 'ArrowUp': case 'x': case 'X': {
+const r = rotate(piece);
+if (!collide(piece, 0, 0, r)) piece.blocks = r;
+else if (!collide(piece, -1, 0, r)) { piece.x--; piece.blocks = r; }
+else if (!collide(piece, 1, 0, r)) { piece.x++; piece.blocks = r; }
+break;
+}
+case ' ': {
+e.preventDefault();
+let d = 0;
+while (!collide(piece, 0, d+1)) d++;
+piece.y += d; score += d * 2; $('#score').textContent = score;
+lock(); last = performance.now();
+break;
+}
+case 'c': case 'C': {
+if (!canHold) break;
+if (hold) {
+const h = hold;
+hold = makePiece(piece.key);
+piece = h;
+} else {
+hold = makePiece(piece.key);
+piece = next;
+next = makePiece(nextFromBag());
+}
+piece.x = 3; piece.y = 0;
+canHold = false;
+break;
+}
+case 'p': case 'P': paused = !paused; break;
+}
+});
+// touch controls
+const bLeft = document.getElementById('btn-left');
+const bRight = document.getElementById('btn-right');
+const bRotate = document.getElementById('btn-rotate');
+const bDrop = document.getElementById('btn-drop');
+if (bLeft) bLeft.addEventListener('click', ()=>{ if (!collide(piece,-1,0)) piece.x--; });
+if (bRight) bRight.addEventListener('click', ()=>{ if (!collide(piece,1,0)) piece.x++; });
+if (bRotate) bRotate.addEventListener('click', ()=>{ const r = rotate(piece); if (!collide(piece, 0, 0, r)) piece.blocks = r; else if (!collide(piece, -1, 0, r)) { piece.x--; piece.blocks = r; } else if (!collide(piece, 1, 0, r)) { piece.x++; piece.blocks = r; } });
+if (bDrop) bDrop.addEventListener('click', ()=>{ let d = 0; while (!collide(piece, 0, d+1)) d++; piece.y += d; score += d * 2; $('#score').textContent = score; lock(); last = performance.now(); });
+
+$('#restart').addEventListener('click', () => { newGame(); requestAnimationFrame(loop); loadLeaderboard(); });
+sizeBg();
+newGame();
+loadLeaderboard();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

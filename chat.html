@@ -1,0 +1,86 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Chat — Neon Arcade</title>
+<link rel="stylesheet" href="css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/supabase-client.js"></script>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="brand"><div class="logo">NG</div><div><h1 class="title">Chat</h1><div class="small">Public chat (demo)</div></div></div>
+    <a class="btn" href="index.html">Back</a>
+  </div>
+  <div class="card">
+    <div id="chat" class="chat-window"></div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input id="msg" class="input" placeholder="Type a message" />
+      <button id="send" class="btn">Send</button>
+    </div>
+    <div class="small" style="margin-top:8px">This chat uses Supabase realtime if configured; otherwise it stores messages locally in your browser.</div>
+  </div>
+</div>
+<script>
+const chatEl=document.getElementById('chat');
+let messagesCache = [];
+function renderMsgs(msgs){chatEl.innerHTML='';for(const m of msgs){const el=document.createElement('div');el.className='message';const color = m.color || '#222';el.innerHTML = `<div style="display:flex;align-items:center;gap:8px"><div style="width:28px;height:28px;border-radius:50%;background:${color};flex:0 0 28px;border:1px solid rgba(255,255,255,0.06)"></div><div style=\"flex:1\"><div class=\"meta\">${m.username} · ${new Date(m.t).toLocaleTimeString()}</div><div>${m.message}</div></div></div>`;chatEl.appendChild(el)}chatEl.scrollTop=chatEl.scrollHeight}
+
+// Local fallback storage
+function loadLocal(){try{return JSON.parse(localStorage.getItem('ng.chat')||'[]')}catch(e){return []}}
+function saveLocal(msgs){localStorage.setItem('ng.chat', JSON.stringify(msgs))}
+
+async function appendMessage(user, text){
+  if (window.SUPABASE_ENABLED && window.SUPABASE_CLIENT) {
+    // try to include user_id and color from profiles
+    const userObj = (await window.SUPABASE_CLIENT.auth.getUser()).data.user;
+    let username = user;
+    let color = null;
+    if (userObj) {
+      username = userObj.email;
+      const { data: profile } = await window.SUPABASE_CLIENT.from('user_profiles').select('username,color').eq('id', userObj.id).maybeSingle();
+      if (profile) { username = profile.username || username; color = profile.color || null; }
+      await window.SUPABASE_CLIENT.from('themessages').insert([{ username, message: text, user_id: userObj.id, color }]);
+    } else {
+      await window.SUPABASE_CLIENT.from('themessages').insert([{ username, message: text }]);
+    }
+    return;
+  }
+  const msgs = loadLocal(); msgs.push({ username: user, message: text, t: Date.now(), color: '#999' }); saveLocal(msgs); renderMsgs(msgs);
+}
+
+// Subscribe to Supabase realtime messages if available
+async function initRealtime(){
+  if (window.SUPABASE_ENABLED && window.SUPABASE_CLIENT) {
+    // load initial
+    const { data: initial } = await window.SUPABASE_CLIENT.from('themessages').select('*').order('created_at', { ascending: true }).limit(200);
+    const msgs = (initial||[]).map(m => ({ username: m.username, message: m.message, t: new Date(m.created_at).getTime(), color: m.color || null }));
+    messagesCache = msgs.slice(); renderMsgs(messagesCache);
+    // subscribe to inserts
+    window.SUPABASE_CLIENT.channel('public:themessages')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'themessages' }, payload => {
+        const m = payload.new; messagesCache.push({ username: m.username, message: m.message, t: new Date(m.created_at).getTime(), color: m.color || null });
+        // keep local fallback in sync
+        const local = loadLocal(); local.push({ username: m.username, message: m.message, t: new Date(m.created_at).getTime(), color: m.color || null }); saveLocal(local);
+        renderMsgs(messagesCache);
+      }).subscribe();
+    return;
+  }
+  // fallback: render local
+  const local = loadLocal(); messagesCache = local.slice(); renderMsgs(messagesCache);
+}
+
+document.getElementById('send').addEventListener('click', async ()=>{
+  const txt=document.getElementById('msg').value.trim(); if(!txt) return;
+  const supaUser = window.SUPABASE_ENABLED && window.SUPABASE_CLIENT ? (await window.SUPABASE_CLIENT.auth.getUser()).data.user : null;
+  const u = JSON.parse(localStorage.getItem('ng.session')||'null') || (supaUser ? { email: supaUser.email } : { email: 'guest' });
+  await appendMessage(u.email, txt);
+  document.getElementById('msg').value='';
+});
+
+initRealtime();
+</script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Pac-Man — Neon Arcade</title>
+<link rel="stylesheet" href="css/style.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+<script src="js/supabase-config.js"></script>
+<script src="js/supabase-client.js"></script>
+</head>
+<body class="game-page">
+<div class="game-header" style="max-width:460px">
+  <a class="back-link" href="index.html">← arcade</a>
+  <h1>PAC-MAN</h1>
+</div>
+<div class="card center" style="width:360px;padding:16px">
+  <canvas id="pacman" width="360" height="360" style="background:#020214;border-radius:14px"></canvas>
+  <div style="margin-top:12px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+    <button id="start" class="btn">Start</button>
+    <button id="pause" class="btn">Pause</button>
+    <button id="reset" class="btn">Reset</button>
+  </div>
+  <div style="margin-top:12px;display:grid;gap:8px">
+    <div id="pacman-leaderboard" class="card" style="padding:12px;max-width:320px;margin:0 auto;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:12px"></div>
+  </div>
+  <div class="small" style="margin-top:10px">Use arrow keys to move. Eat all pellets while avoiding the ghost.</div>
+</div>
+<script type="module" src="js/pacman.js"></script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Snake — Neon Arcade</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="game-page">
+<div class="game-header" style="max-width:460px">
+  <a class="back-link" href="index.html">← arcade</a>
+  <h1>SNAKE</h1>
+</div>
+<div class="card center" style="width:320px;padding:12px">
+  <canvas id="s" width="320" height="320" style="background:#020214;border-radius:8px"></canvas>
+  <div style="margin-top:8px;display:flex;gap:8px">
+    <button id="start" class="btn">Start</button>
+    <button id="pause" class="btn">Pause</button>
+    <button id="reset" class="btn">Reset</button>
+  </div>
+  <div id="snake-status" class="small" style="margin-top:8px">Controls: Arrow keys to move.</div>
+  <div id="snake-leaderboard" class="card" style="margin-top:12px;padding:12px;max-width:320px;margin-left:auto;margin-right:auto;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:12px"></div>
+</div>
+<script type="module" src="js/snake.js"></script>
+</body>
+</html>

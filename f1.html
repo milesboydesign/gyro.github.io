@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>3D F1 — Neon Arcade</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="game-page">
+<div class="game-header" style="max-width:720px">
+  <a class="back-link" href="index.html">← arcade</a>
+  <h1>3D F1 Racing</h1>
+</div>
+<div class="card center" style="width:100%;max-width:900px;min-height:520px;position:relative;padding:0;overflow:hidden">
+  <canvas id="f1canvas" style="width:100%;height:100%;display:block"></canvas>
+  <div class="overlay" style="position:absolute;left:18px;top:18px;align-items:flex-start;pointer-events:none">
+    <div class="hud">Speed: <span id="f1-speed">0 km/h</span></div>
+    <div class="hud">Lap time: <span id="f1-time">0.0s</span></div>
+    <div class="hud" id="f1-controls">Controls: Arrow keys or WASD</div>
+  </div>
+</div>
+<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;max-width:900px;margin-top:16px">
+  <div class="controls">Use W / ↑ to accelerate, S / ↓ to brake, A / ← and D / → to steer.</div>
+</div>
+<script type="module" src="js/f1.js"></script>
+</body>
+</html>
