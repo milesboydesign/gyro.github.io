@@ -8,6 +8,14 @@ create table if not exists public.user_profiles (
   color text
 );
 
+alter table if exists public.user_profiles enable row level security;
+drop policy if exists "Allow select profiles" on public.user_profiles;
+create policy "Allow select profiles" on public.user_profiles
+  for select using (true);
+drop policy if exists "Allow modify profiles for owner" on public.user_profiles;
+create policy "Allow modify profiles for owner" on public.user_profiles
+  for all using (auth.uid() = id) with check (auth.uid() = id);
+
 -- Add user metadata and color to the existing chat table.
 alter table if exists public.themessages
   add column if not exists user_id uuid,

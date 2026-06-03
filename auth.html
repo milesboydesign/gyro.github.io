@@ -53,13 +53,24 @@ async function loginSupabase(email, pw){
 }
 
 // user profile helpers: upsert into user_profiles (assumes table exists with columns id (uuid), username, color)
-async function upsertProfile(userId, username, color){
+async function resolveSupabaseUser() {
   if (!window.SUPABASE_ENABLED || !window.SUPABASE_CLIENT) return null;
-  const { data, error } = await window.SUPABASE_CLIENT.from('user_profiles').upsert({ id: userId, username, color }).select().maybeSingle();
+  let sess = JSON.parse(localStorage.getItem('ng.session')||'null');
+  let userId = sess?.id;
+  if (!userId) {
+    const { data, error } = await window.SUPABASE_CLIENT.auth.getUser();
+    if (error || !data?.user) return null;
+    userId = data.user.id;
+  }
+  return userId;
+}
+async function upsertProfile(userId, username, color){
+  if (!window.SUPABASE_ENABLED || !window.SUPABASE_CLIENT) return { data: null, error: { message: 'Supabase not configured' } };
+  const { data, error } = await window.SUPABASE_CLIENT.from('user_profiles').upsert({ id: userId, username, color }, { onConflict: 'id' }).select().maybeSingle();
   return { data, error };
 }
 async function loadProfile(userId){
-  if (!window.SUPABASE_ENABLED || !window.SUPABASE_CLIENT) return { data: null };
+  if (!window.SUPABASE_ENABLED || !window.SUPABASE_CLIENT) return { data: null, error: null };
   const { data, error } = await window.SUPABASE_CLIENT.from('user_profiles').select('*').eq('id', userId).maybeSingle();
   return { data, error };
 }
@@ -73,16 +84,18 @@ document.getElementById('register').addEventListener('click', async ()=>{
     setStatus('Creating account...');
     const { data, error } = await signupSupabase(email,pw);
     if (error) { setStatus('Error: '+error.message); return }
-    // create profile
-    try{
-      const user = (data && data.user) || (await window.SUPABASE_CLIENT.auth.getUser()).data.user;
-      if (user) {
-        const username = user.email.split('@')[0];
-        const color = '#'+Math.floor(Math.random()*0xffffff).toString(16).padStart(6,'0');
-        await upsertProfile(user.id, username, color);
-        localStorage.setItem('ng.session', JSON.stringify({email: user.email, id: user.id}));
-      }
-    }catch(e){}
+    const user = (data && data.user) || (await window.SUPABASE_CLIENT.auth.getUser()).data.user;
+    if (!user) { setStatus('Could not verify new user'); return }
+    const username = user.email.split('@')[0];
+    const color = '#'+Math.floor(Math.random()*0xffffff).toString(16).padStart(6,'0');
+    const { error: profileError } = await upsertProfile(user.id, username, color);
+    if (profileError) {
+      setStatus('Account created, but profile save failed: ' + profileError.message);
+      localStorage.setItem('ng.session', JSON.stringify({email: user.email, id: user.id}));
+      showSignedIn();
+      return;
+    }
+    localStorage.setItem('ng.session', JSON.stringify({email: user.email, id: user.id}));
     setStatus('Account created — signed in');
     showSignedIn();
     return;
@@ -126,9 +139,19 @@ function showSignedIn(){document.getElementById('signedout').style.display='none
     if(!sess) return;
     document.getElementById('me').textContent = sess.email;
     // try load profile
-    if (window.SUPABASE_ENABLED && window.SUPABASE_CLIENT && sess.id) {
-      const { data } = await loadProfile(sess.id);
-      if (data) { document.getElementById('displayName').value = data.username || ''; document.getElementById('color').value = data.color || ''; }
+    if (window.SUPABASE_ENABLED && window.SUPABASE_CLIENT) {
+      const userId = await resolveSupabaseUser();
+      if (userId) {
+        const { data, error } = await loadProfile(userId);
+        if (error) {
+          document.getElementById('profileStatus').textContent = 'Unable to load profile: ' + (error.message || 'unknown');
+          return;
+        }
+        if (data) {
+          document.getElementById('displayName').value = data.username || '';
+          document.getElementById('color').value = data.color || '';
+        }
+      }
     }
   })();
 }
@@ -142,14 +165,19 @@ document.getElementById('signout').addEventListener('click', async ()=>{
 });
 
 document.getElementById('saveProfile').addEventListener('click', async ()=>{
-  const sess = JSON.parse(localStorage.getItem('ng.session')||'null'); if(!sess || !sess.id) { setStatus('Not signed in'); return }
-  const username = document.getElementById('displayName').value.trim() || sess.email.split('@')[0];
+  const sess = JSON.parse(localStorage.getItem('ng.session')||'null');
+  if (!sess && !window.SUPABASE_ENABLED) { setStatus('Not signed in'); return }
+  const username = document.getElementById('displayName').value.trim() || (sess?.email || 'guest').split('@')[0];
   const color = document.getElementById('color').value.trim() || '#'+Math.floor(Math.random()*0xffffff).toString(16).padStart(6,'0');
-  if (window.SUPABASE_ENABLED && window.SUPABASE_CLIENT) {
-    const { data, error } = await upsertProfile(sess.id, username, color);
-    if (error) { document.getElementById('profileStatus').textContent = 'Error saving profile'; return }
-    document.getElementById('profileStatus').textContent = 'Profile saved';
-  } else { document.getElementById('profileStatus').textContent = 'Supabase not configured'; }
+  const userId = await resolveSupabaseUser();
+  if (!userId) { document.getElementById('profileStatus').textContent = 'Could not resolve signed-in user'; return }
+  const { data, error } = await upsertProfile(userId, username, color);
+  if (error) {
+    document.getElementById('profileStatus').textContent = 'Error saving profile: ' + (error.message || 'unknown');
+    return
+  }
+  document.getElementById('profileStatus').textContent = 'Profile saved';
+  localStorage.setItem('ng.session', JSON.stringify({ email: sess?.email || '', id: userId }));
 });
 </script>
 </body>
